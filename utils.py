@@ -23,7 +23,7 @@ Examples
 >>> df_fluxstd = fetch_fluxstd(hpx_indices, "./data/fluxstd/")
 >>> df_matched = match_catalog(df, df_fluxstd)
 """
-
+import math
 import warnings
 from pathlib import Path
 
@@ -526,12 +526,64 @@ def match_catalog(
     return df_out
 
 
+def load_input_list(input_file: str) -> pd.DataFrame:
+    """
+    Load input catalog from CSV file.
+
+    Parameters
+    ----------
+    input_file : str
+        Path to input CSV file
+
+    Returns
+    -------
+    pd.DataFrame
+        DataFrame containing input catalog
+
+    Raises
+    ------
+    FileNotFoundError
+        If input_file does not exist
+    """
+
+    def check_bigint(value):
+        try:
+            int_value = int(value)
+            if math.isclose(int_value, float(value)):
+                if (
+                    int_value >= -9223372036854775808
+                    and int_value <= 9223372036854775807
+                ):
+                    return int_value
+                else:
+                    raise ValueError(
+                        f"Out of range value detected (-9223372036854775808, 9223372036854775807): {value}"
+                    )
+            else:
+                raise ValueError(f"Non integer value detected: {value}")
+        except ValueError as e:
+            raise ValueError(f"{e}") from e
+        except TypeError as e:
+            raise TypeError(f"{e}") from e
+
+    validated_input_file = _validate_path(input_file, "input_file")
+
+    logger.info(f"Loading input catalog from {validated_input_file}")
+    df = pd.read_csv(
+        validated_input_file,
+        dtype={"ra": float, "dec": float},
+        converters={"obj_id": check_bigint},
+    )
+
+    return df
+
+
 if __name__ == "__main__":
 
     duckdb_data_root = "./duckdb_root/fluxstd_v3.4_nside32/release/"
     input_file = "./tmp/gaia_dr3_cosmos_r30arcmin.csv"
 
-    df = pd.read_csv(input_file)
+    df = load_input_list(input_file)
     df = add_healpix_columns(df, nside=DEFAULT_NSIDE)
 
     # Get unique HEALPix indices to query
