@@ -3,6 +3,7 @@
 import io
 import os
 import tempfile
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -16,19 +17,19 @@ from utils import (
     generate_fluxstd_coords,
     load_input_list,
     match_catalog,
+    process_fluxstd_lookup,
 )
 
 pn.extension("tabulator", notifications=True)
 
 logger.info("PFS Flux Standard Star Lookup Tool")
 
-
 load_dotenv()
 
 # Widgets
 file_input = pn.widgets.FileInput(
     accept=".csv",
-    width=500,
+    width=300,
     height=50,
     multiple=False,
 )
@@ -36,8 +37,6 @@ file_input = pn.widgets.FileInput(
 process_button = pn.widgets.Button(
     name="Match Flux Standard Stars",
     button_type="primary",
-    # button_type="default",
-    # button_style="outline",
     icon="search",
     icon_size="1.5em",
     width=300,
@@ -49,7 +48,6 @@ download_button = pn.widgets.FileDownload(
     callback=lambda: None,  # Will be updated dynamically
     filename="matched_fluxstd.csv",
     button_type="primary",
-    # button_style="outline",
     icon="download",
     icon_size="1.5em",
     width=300,
@@ -90,12 +88,29 @@ result_table = pn.widgets.Tabulator(
 result_table.visible = False
 process_button.disabled = True
 
+# Loading spinner for processing state
+loading_spinner_size = 180
+loading_spinner = pn.indicators.LoadingSpinner(
+    value=True,
+    name="Processing...",
+    size=loading_spinner_size,
+    color="secondary",
+    bgcolor="light",
+    margin=(
+        (640 - loading_spinner_size) // 4,
+        0,
+        0,
+        (1280 - loading_spinner_size) // 3,
+    ),
+)
+
+# Container to switch between spinner and result table
+result_area = pn.Column(width=1280, height=640, visible=False, margin=(0, 0, 0, 0))
+
 
 # Callback
-def match_fluxstd_callback(event):
+def match_fluxstd_callback(event: Any) -> None:
     """Process the uploaded file and match flux standard stars."""
-    process_button.disabled = True
-
     process_button.disabled = True
 
     result_table.value = pd.DataFrame()  # Clear previous results
@@ -103,6 +118,10 @@ def match_fluxstd_callback(event):
     if not file_input.value:
         pn.state.notifications.error("Please upload a CSV file before processing.")
         return
+
+    # Show loading spinner
+    result_area.objects = [loading_spinner]
+    result_area.visible = True
 
     # Read the uploaded file
     # file_input.value is bytes
@@ -125,20 +144,7 @@ def match_fluxstd_callback(event):
         logger.info(f"Successfully loaded {len(df_input)} rows from uploaded CSV")
 
         # Perform matching
-        df_input = add_healpix_columns(df_input)
-        hpx_indices = df_input["hpx32"].unique().tolist()
-
-        duckdb_data_root = os.getenv("DUCKDB_DATA_ROOT")
-        if not duckdb_data_root:
-            pn.state.notifications.error(
-                "DUCKDB_DATA_ROOT is not set. Create a .env file (see .env.example) or export DUCKDB_DATA_ROOT.",
-                duration=0,
-            )
-            logger.error("DUCKDB_DATA_ROOT is not set")
-            return
-
-        df_fluxstd = fetch_fluxstd(hpx_indices, duckdb_data_root)
-        df_out = match_catalog(df_input, df_fluxstd)
+        df_out = process_fluxstd_lookup(df_input)
 
         # Update the result table
         result_table.value = df_out.loc[
@@ -153,12 +159,15 @@ def match_fluxstd_callback(event):
                 "sep_arcsec",
             ],
         ]
+
+        # Show result table instead of spinner
+        result_area.objects = [result_table]
         result_table.visible = True
 
         # Update download button with the results
         # NOTE: FileDownload treats a returned `str` as a file path.
         # Return bytes (or a file-like object) to download generated content.
-        def get_csv_data():
+        def get_csv_data() -> io.BytesIO:
             csv_bytes = (
                 df_out.loc[
                     :,
@@ -183,16 +192,24 @@ def match_fluxstd_callback(event):
         pn.state.notifications.success("Flux standard star matching completed.")
     except Exception as e:
         pn.state.notifications.error(
-            f"Error reading the uploaded file: {e}", duration=0
+            f"Error processing flux standard matching: {e}", duration=0
         )
-        logger.error(f"Error reading uploaded file: {e}")
+        logger.error(f"Error during flux standard matching: {e}")
+        # Hide result area on error
+        result_area.visible = False
         return
     finally:
         process_button.disabled = file_input.value is None
 
 
-def _toggle_button_on_file(event):
+def _toggle_button_on_file(event: Any) -> None:
     process_button.disabled = event.new is None or len(event.new) == 0
+    # Clear previous results when new file is uploaded
+    if event.new is not None and len(event.new) > 0:
+        result_table.value = pd.DataFrame()
+        result_table.visible = False
+        result_area.visible = False
+        download_button.disabled = True
 
 
 # watch value
@@ -214,18 +231,21 @@ main = pn.Column(
 ### Note
 - Flux standard stars are selected from Gaia DR3 catalog cross-matched with Pan-STARRS (PS1) DR2 when available.
 - Coordinates are matched after applying proper motion correction to the epoch of 2000.0.
+- Cross-matching takes long time for objects distributing over large sky area. It is strongly recommended to limit the input list to objects within a small sky area (e.g., several sq. degrees) for efficient processing.
 """,
         disable_anchors=True,
         styles={"font-size": "medium"},
+        width=960,
     ),
     pn.Row(file_input, process_button, download_button),
-    result_table,
+    result_area,
 )
 
 # pn.template.FastListTemplate(
 pn.template.MaterialTemplate(
     title="PFS Flux Standard Star Lookup",
-    main=main,
+    main=[main],
+    header_background="#5a79ba",
     raw_css=[
         """
         /* Local Variable Fonts */
@@ -246,14 +266,23 @@ pn.template.MaterialTemplate(
         }
 
         /* Global Reset & Override */
-        :root, body, .bk, .bk-root, :host {
+        * {
             font-family: 'Geist', sans-serif !important;
+        }
+
+        :root {
             --body-font: 'Geist', sans-serif !important;
             --bk-font-family: 'Geist', sans-serif !important;
-
-            /* monospace numbers and better visibility (tnum, cv05) */
-            /* font-feature-settings: "tnum", "cv05" !important; */
         }
+
+        body, .bk, .bk-root, :host,
+        .mdc-typography, .mdc-typography--body1, .mdc-typography--body2,
+        .markdown, .bk-input, button, input, select, textarea {
+            font-family: 'Geist', sans-serif !important;
+        }
+
+        /* monospace numbers and better visibility (tnum, cv05) */
+        /* font-feature-settings: "tnum", "cv05" !important; */
         """
     ],
 ).servable()

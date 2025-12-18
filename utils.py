@@ -27,6 +27,7 @@ import math
 import os
 import warnings
 from pathlib import Path
+from typing import Any
 
 import duckdb
 import numpy as np
@@ -40,7 +41,7 @@ from astropy.coordinates import (
     match_coordinates_sky,
 )
 from astropy.time import Time
-from astropy_healpix import lonlat_to_healpix
+from astropy_healpix import lonlat_to_healpix, neighbours
 from dotenv import load_dotenv
 from erfa import ErfaWarning
 from loguru import logger
@@ -83,6 +84,35 @@ def _env_str(name: str, default: str, *, allowed: set[str] | None = None) -> str
     return value
 
 
+def _env_bool(name: str, default: bool) -> bool:
+    """
+    Get boolean value from environment variable.
+
+    Parameters
+    ----------
+    name : str
+        Environment variable name
+    default : bool
+        Default value if not set or invalid
+
+    Returns
+    -------
+    bool
+        Boolean value from environment or default
+    """
+    value = os.getenv(name)
+    if value is None or value.strip() == "":
+        return default
+    value = value.strip().lower()
+    if value in ("true", "1", "yes", "on"):
+        return True
+    elif value in ("false", "0", "no", "off"):
+        return False
+    else:
+        logger.warning(f"Invalid env var {name}='{value}', using default={default}")
+        return default
+
+
 # Configuration constants (env-overridable)
 DEFAULT_DUCKDB_THREADS = _env_int("DUCKDB_THREADS", 16)
 """Default number of threads for DuckDB operations (env: DUCKDB_THREADS)"""
@@ -108,6 +138,12 @@ DEFAULT_HEALPIX_ORDER = _env_str(
     "FLUXSTD_HEALPIX_ORDER", "ring", allowed={"ring", "nested"}
 )
 """Default HEALPix ordering scheme (env: FLUXSTD_HEALPIX_ORDER)"""
+
+DEFAULT_BATCH_SIZE = _env_int("FLUXSTD_BATCH_SIZE", 20)
+"""Number of HEALPix pixels to process per batch (env: FLUXSTD_BATCH_SIZE)"""
+
+DEFAULT_INCLUDE_NEIGHBORS = _env_bool("FLUXSTD_INCLUDE_NEIGHBORS", True)
+"""Include neighboring HEALPix pixels in search (env: FLUXSTD_INCLUDE_NEIGHBORS)"""
 
 # Flux standard quality selection criteria (env-overridable)
 DEFAULT_MIN_PROB_F_STAR = _env_float("FLUXSTD_MIN_PROB_F_STAR", 0.5)
@@ -343,7 +379,7 @@ def fetch_fluxstd(
     return df_db
 
 
-def generate_fluxstd_coords(df_db: pd.DataFrame) -> SkyCoord:
+def generate_fluxstd_coords(df_db: pd.DataFrame) -> tuple[SkyCoord, pd.Series]:
     """
     Generate SkyCoord objects for flux standard catalog with proper motion and parallax.
 
@@ -357,8 +393,10 @@ def generate_fluxstd_coords(df_db: pd.DataFrame) -> SkyCoord:
 
     Returns
     -------
-    SkyCoord
-        SkyCoord object with coordinates propagated to epoch 2000.0
+    tuple[SkyCoord, pd.Series]
+        Tuple containing:
+        - SkyCoord object with coordinates propagated to epoch 2000.0
+        - Boolean pandas Series indicating good flux standard objects
 
     Raises
     ------
@@ -597,7 +635,7 @@ def load_input_list(input_file: str) -> pd.DataFrame:
         If input_file does not exist
     """
 
-    def check_bigint(value):
+    def check_bigint(value: Any) -> int:
         try:
             int_value = int(value)
             if math.isclose(int_value, float(value)):
@@ -627,6 +665,210 @@ def load_input_list(input_file: str) -> pd.DataFrame:
     )
 
     return df
+
+
+def _get_neighbor_pixels(hpx_index: int, nside: int, order: str = "ring") -> list[int]:
+    """
+    Get neighboring HEALPix pixels.
+
+    Uses astropy_healpix.neighbours() function to find the 8 neighboring pixels.
+
+    Parameters
+    ----------
+    hpx_index : int
+        HEALPix index of the central pixel
+    nside : int
+        HEALPix NSIDE parameter
+    order : str, default="ring"
+        HEALPix ordering scheme
+
+    Returns
+    -------
+    list[int]
+        List of unique neighbor pixel indices (always 8 neighbors in ring scheme)
+    """
+    neighbor_indices = neighbours(hpx_index, nside=nside, order=order)
+    # Convert numpy array to list of integers
+    return [int(idx) for idx in neighbor_indices]
+
+
+def _expand_with_neighbors(
+    hpx_indices: list[int], nside: int, order: str = DEFAULT_HEALPIX_ORDER
+) -> list[int]:
+    """
+    Expand HEALPix pixel list to include neighboring pixels.
+
+    Parameters
+    ----------
+    hpx_indices : list[int]
+        List of HEALPix indices
+    nside : int
+        HEALPix NSIDE parameter
+    order : str, default=DEFAULT_HEALPIX_ORDER
+        HEALPix ordering scheme
+
+    Returns
+    -------
+    list[int]
+        Unique sorted list of pixels including originals and neighbors
+    """
+    expanded = set(hpx_indices)
+
+    for hpx in hpx_indices:
+        neighbor_list = _get_neighbor_pixels(hpx, nside, order)
+        expanded.update(neighbor_list)
+
+    return sorted(expanded)
+
+
+def _process_healpix_batch(
+    df_input_batch: pd.DataFrame,
+    hpx_indices_batch: list[int],
+    duckdb_data_root: str,
+    nside: int,
+    sep: u.Quantity = DEFAULT_MATCH_SEPARATION,
+) -> pd.DataFrame:
+    """
+    Process a batch of HEALPix pixels for flux standard matching.
+
+    Parameters
+    ----------
+    df_input_batch : pd.DataFrame
+        Input objects belonging to this batch of pixels
+    hpx_indices_batch : list[int]
+        List of HEALPix indices to query (may include neighbors)
+    duckdb_data_root : str
+        Root directory containing Parquet files
+    nside : int
+        HEALPix NSIDE parameter
+    sep : u.Quantity, default=DEFAULT_MATCH_SEPARATION
+        Maximum separation for matching
+
+    Returns
+    -------
+    pd.DataFrame
+        Matched results for this batch (empty DataFrame if no matches or on error)
+    """
+    try:
+        # Fetch flux standards for all pixels in batch
+        df_fluxstd = fetch_fluxstd(hpx_indices_batch, duckdb_data_root, nside=nside)
+
+        if df_fluxstd.empty:
+            return pd.DataFrame()
+
+        # Perform matching for this batch's data
+        df_matched = match_catalog(df_input_batch, df_fluxstd, sep=sep)
+
+        return df_matched
+
+    except Exception as e:
+        logger.error(f"Error processing HEALPix batch: {e}")
+        return pd.DataFrame()
+
+
+def process_fluxstd_lookup(df_input: pd.DataFrame) -> pd.DataFrame:
+    """
+    Process flux standard star lookup and matching.
+
+    Parameters
+    ----------
+    df_input : pd.DataFrame
+        Input catalog DataFrame with 'ra', 'dec', 'obj_id' columns
+
+    Returns
+    -------
+    pd.DataFrame
+        DataFrame with matched objects
+    """
+    # Add HEALPix columns
+    df_input = add_healpix_columns(df_input, nside=DEFAULT_NSIDE)
+
+    # Get unique HEALPix indices to query
+    hpx_indices = df_input[f"hpx{DEFAULT_NSIDE}"].unique().tolist()
+
+    logger.info(f"Processing {len(hpx_indices)} unique HEALPix pixels")
+
+    duckdb_data_root = os.getenv("DUCKDB_DATA_ROOT")
+    if not duckdb_data_root:
+        logger.error("DUCKDB_DATA_ROOT is not set")
+        raise ValueError(
+            "DUCKDB_DATA_ROOT is not set. Create a .env file (see .env.example) or export DUCKDB_DATA_ROOT."
+        )
+
+    # Create batches of pixels
+    batch_size = DEFAULT_BATCH_SIZE
+    num_batches = (len(hpx_indices) + batch_size - 1) // batch_size
+    batches = [
+        hpx_indices[i * batch_size : (i + 1) * batch_size]
+        for i in range(num_batches)
+    ]
+
+    logger.info(
+        f"Processing in {num_batches} batches (batch size: {batch_size}, "
+        f"include neighbors: {DEFAULT_INCLUDE_NEIGHBORS})"
+    )
+
+    # Process each batch
+    results = []
+    for batch_idx, batch_pixels in enumerate(batches, start=1):
+        # Optionally expand with neighbors
+        if DEFAULT_INCLUDE_NEIGHBORS:
+            batch_pixels_expanded = _expand_with_neighbors(
+                batch_pixels, DEFAULT_NSIDE, DEFAULT_HEALPIX_ORDER
+            )
+            logger.info(
+                f"Batch {batch_idx}/{num_batches}: {len(batch_pixels)} pixels "
+                f"expanded to {len(batch_pixels_expanded)} (with neighbors)"
+            )
+        else:
+            batch_pixels_expanded = batch_pixels
+            logger.info(
+                f"Batch {batch_idx}/{num_batches}: {len(batch_pixels)} pixels "
+                f"(neighbors disabled)"
+            )
+
+        # Get input objects for original pixels in this batch
+        mask = df_input[f"hpx{DEFAULT_NSIDE}"].isin(batch_pixels)
+        df_input_batch = df_input.loc[mask]
+
+        logger.info(f"  Processing {len(df_input_batch)} input objects")
+
+        # Process batch
+        df_batch_result = _process_healpix_batch(
+            df_input_batch, batch_pixels_expanded, duckdb_data_root, DEFAULT_NSIDE
+        )
+
+        if not df_batch_result.empty:
+            results.append(df_batch_result)
+            logger.info(f"  Found {len(df_batch_result)} matches in this batch")
+        else:
+            logger.info(f"  No matches in this batch")
+
+    # Combine results from all pixels
+    if not results:
+        logger.warning("No matches found across any HEALPix pixels")
+        return pd.DataFrame(
+            columns=[
+                "obj_id",
+                "ra",
+                "dec",
+                "fluxstd_obj_id",
+                "fluxstd_ra",
+                "fluxstd_dec",
+                "sep_arcsec",
+                "obj_id_str",
+                "fluxstd_obj_id_str",
+            ]
+        )
+
+    df_out = pd.concat(results, ignore_index=True)
+
+    logger.info(
+        f"Total matches: {len(df_out)} objects across {len(results)}/{num_batches} batches "
+        f"({len(hpx_indices)} unique input pixels)"
+    )
+
+    return df_out
 
 
 if __name__ == "__main__":

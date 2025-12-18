@@ -46,6 +46,9 @@ fi
 # Determine mode from first argument
 MODE="${1:-production}"
 
+# Configure WebSocket and buffer sizes (150 MB example)
+MAX_SIZE_BYTES=$((150 * 1024 * 1024))
+
 if [[ "$MODE" == "dev" ]]; then
   echo "Running in development mode with auto-reload"
   PORT="5207"
@@ -58,6 +61,7 @@ if [[ "$MODE" == "dev" ]]; then
     --allow-websocket-origin="127.0.0.1:$PORT" \
     $PREFIX_OPT \
     --static-dirs "assets"="./assets" \
+    --websocket-max-message-size $MAX_SIZE_BYTES \
     --dev
 else
   echo "Running in production mode with multi-threading"
@@ -71,12 +75,8 @@ else
     --allow-websocket-origin="127.0.0.1:$PORT" \
     $PREFIX_OPT \
     --static-dirs "assets"="./assets" \
+    --websocket-max-message-size $MAX_SIZE_BYTES \
     --num-threads 8
 fi
 
 echo "Application started successfully on $ORIGIN:$PORT"
-
-
-# Notes
-# python3 -m pip install --target "$LSST_PYTHON_USERLIB" panel watchfiles loguru ipywidgets_bokeh ipympl python-dotenv joblib datashader "holoviews[recommended]"
-
