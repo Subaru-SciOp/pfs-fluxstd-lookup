@@ -1,9 +1,10 @@
 #!/bin/bash
 set -eo pipefail
 
-# Change to script directory to ensure .env is found
+# Change to project root directory to ensure .env is found
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-cd "$SCRIPT_DIR"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+cd "$PROJECT_ROOT"
 
 # Load environment variables from .env file
 if [[ -f .env ]]; then
