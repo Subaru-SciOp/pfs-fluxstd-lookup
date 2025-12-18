@@ -85,10 +85,6 @@ convention = "numpy"
 # Keep tests lightweight: don't require docstrings in test files.
 "tests/**.py" = ["D"]
 
-[tool.hatch.build.targets.wheel]
-packages = ["."]
-only-include = ["app.py", "utils.py"]
-
 [tool.hatch.version]
 source = "vcs"
 tag-pattern = "^v(?P<version>.+)$"
