@@ -25,6 +25,7 @@ Examples
 """
 import math
 import os
+import time
 import warnings
 from pathlib import Path
 from typing import Any
@@ -610,7 +611,7 @@ def match_catalog(
 
     logger.info(f"Matched {len(df_out)} objects within {sep.to(u.arcsec).value} arcsec")
 
-    logger.info(f"\n{df_out.head()}")
+    logger.info(f"Showing first 5 matches:\n{df_out.head(5)}")
 
     return df_out
 
@@ -799,8 +800,7 @@ def process_fluxstd_lookup(df_input: pd.DataFrame) -> pd.DataFrame:
     batch_size = DEFAULT_BATCH_SIZE
     num_batches = (len(hpx_indices) + batch_size - 1) // batch_size
     batches = [
-        hpx_indices[i * batch_size : (i + 1) * batch_size]
-        for i in range(num_batches)
+        hpx_indices[i * batch_size : (i + 1) * batch_size] for i in range(num_batches)
     ]
 
     logger.info(
@@ -808,9 +808,15 @@ def process_fluxstd_lookup(df_input: pd.DataFrame) -> pd.DataFrame:
         f"include neighbors: {DEFAULT_INCLUDE_NEIGHBORS})"
     )
 
+    # Start overall timing
+    overall_start_time = time.time()
+
     # Process each batch
     results = []
     for batch_idx, batch_pixels in enumerate(batches, start=1):
+        # Start batch timing
+        batch_start_time = time.time()
+
         # Optionally expand with neighbors
         if DEFAULT_INCLUDE_NEIGHBORS:
             batch_pixels_expanded = _expand_with_neighbors(
@@ -838,11 +844,19 @@ def process_fluxstd_lookup(df_input: pd.DataFrame) -> pd.DataFrame:
             df_input_batch, batch_pixels_expanded, duckdb_data_root, DEFAULT_NSIDE
         )
 
+        # Calculate batch elapsed time
+        batch_elapsed_time = time.time() - batch_start_time
+
         if not df_batch_result.empty:
             results.append(df_batch_result)
-            logger.info(f"  Found {len(df_batch_result)} matches in this batch")
+            logger.info(
+                f"  Found {len(df_batch_result)} matches in this batch "
+                f"(elapsed time: {batch_elapsed_time:.2f} sec)"
+            )
         else:
-            logger.info(f"  No matches in this batch")
+            logger.info(
+                f"  No matches in this batch (elapsed time: {batch_elapsed_time:.2f} sec)"
+            )
 
     # Combine results from all pixels
     if not results:
@@ -863,10 +877,14 @@ def process_fluxstd_lookup(df_input: pd.DataFrame) -> pd.DataFrame:
 
     df_out = pd.concat(results, ignore_index=True)
 
+    # Calculate overall elapsed time
+    overall_elapsed_time = time.time() - overall_start_time
+
     logger.info(
         f"Total matches: {len(df_out)} objects across {len(results)}/{num_batches} batches "
         f"({len(hpx_indices)} unique input pixels)"
     )
+    logger.info(f"Total matching time: {overall_elapsed_time:.2f} sec")
 
     return df_out
 
