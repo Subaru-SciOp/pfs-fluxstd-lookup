@@ -54,7 +54,7 @@ if [[ "$MODE" == "dev" ]]; then
   echo "Running in development mode with auto-reload"
   PORT="5207"
   # shellcheck disable=SC2086
-  uv run panel serve app.py \
+  uv run --no-sync -- python -m panel serve app.py \
     --address "$ADDRESS" \
     --port "$PORT" \
     --allow-websocket-origin="$ORIGIN:$PORT" \
@@ -69,7 +69,7 @@ else
   echo "Running in production mode with multi-threading"
   PORT="5107"
   # shellcheck disable=SC2086
-  uv run panel serve app.py \
+  uv run --no-sync -- python -m panel serve app.py \
     --address "$ADDRESS" \
     --port "$PORT" \
     --allow-websocket-origin="$ORIGIN:$PORT" \
