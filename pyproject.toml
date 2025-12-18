@@ -1,9 +1,36 @@
 [project]
-name = "pfs-fluxstd-match"
+name = "pfs-fluxstd-lookup"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.12"
+license = "MIT"
+authors = [
+    { name = "Masato Onodera", email = "monodera@naoj.org" },
+    { name = "Subaru/PFS obsproc team", email = "pfs-obs-help@naoj.org" },
+]
+maintainers = [
+    { name = "Masato Onodera", email = "monodera@naoj.org" },
+    { name = "Subaru/PFS obsproc team", email = "pfs-obs-help@naoj.org" },
+]
+keywords = [
+    "astronomy",
+    "spectroscopy",
+    "pfs",
+    "prime-focus-spectrograph",
+    "gaia",
+    "pan-starrs",
+    "web-application",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: Astronomy",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+]
+
 dependencies = [
     "astropy[recommended]>=7.2.0",
     "astropy-healpix>=1.1.2",
@@ -13,6 +40,7 @@ dependencies = [
     "pandas[parquet]>=2.3.3",
     "psycopg2-binary>=2.9.10",
     "panel>=1.8.4",
+    "python-dotenv>=1.2.1",
 ]
 
 [dependency-groups]
@@ -30,6 +58,12 @@ force-exclude = true
 [tool.ruff.lint]
 # Explicitly include Ruff's default rule set (E4/E7/E9/F), then add extra rules.
 select = ["E4", "E7", "E9", "F", "B", "I", "UP", "D"]
+ignore = [
+    "E501", # line too long (handled by Black)
+    "F401", # imported but unused (too noisy with many imports)
+    "D103", # Missing docstring in public function
+    "D100", # Missing docstring in public module
+]
 # Allow Ruff to apply all available auto-fixes when running with `--fix`.
 fixable = ["ALL"]
 

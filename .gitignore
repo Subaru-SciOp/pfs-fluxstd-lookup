@@ -10,6 +10,12 @@ wheels/
 .venv
 
 
+# Local environment files (keep .env.example tracked)
+.env
+.env.*
+!.env.example
+
+
 # added by MO
 duckdb_root/
 tmp/

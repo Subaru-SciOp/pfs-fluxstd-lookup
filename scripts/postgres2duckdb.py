@@ -147,10 +147,12 @@ def validate_sql_identifier(name: str, param_name: str) -> str:
         name: The identifier to validate
         param_name: Name of the parameter (for error messages)
 
-    Returns:
+    Returns
+    -------
         The validated identifier
 
-    Raises:
+    Raises
+    ------
         ValueError: If the identifier contains invalid characters
     """
     # PostgreSQL/DuckDB identifier rules: start with letter or underscore,
@@ -190,10 +192,12 @@ def validate_output_path(path: str) -> str:
     Args:
         path: The output path to validate
 
-    Returns:
+    Returns
+    -------
         The absolute path
 
-    Raises:
+    Raises
+    ------
         ValueError: If the path contains suspicious patterns
     """
     # Check for path traversal attempts
@@ -236,7 +240,8 @@ def get_default_columns() -> list[str]:
     """
     Get the default list of columns to export.
 
-    Returns:
+    Returns
+    -------
         List of default column names
     """
     return [
@@ -299,7 +304,8 @@ def build_column_list(
         ra_col: RA column name (must be included for HEALPix)
         dec_col: Dec column name (must be included for HEALPix)
 
-    Returns:
+    Returns
+    -------
         SQL column list string (e.g., "col1, col2, col3" or "*")
     """
     # If --all-columns flag is set, return "*"
@@ -394,7 +400,8 @@ def compact_partitions(
         hpx_group_col: Name of the partition column
         threads: Number of DuckDB threads to use
 
-    Returns:
+    Returns
+    -------
         Total number of rows in the compacted dataset
     """
     logger.info("Starting Parquet compaction...")

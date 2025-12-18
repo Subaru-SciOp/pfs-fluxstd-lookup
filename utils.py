@@ -24,6 +24,7 @@ Examples
 >>> df_matched = match_catalog(df, df_fluxstd)
 """
 import math
+import os
 import warnings
 from pathlib import Path
 
@@ -40,60 +41,104 @@ from astropy.coordinates import (
 )
 from astropy.time import Time
 from astropy_healpix import lonlat_to_healpix
+from dotenv import load_dotenv
 from erfa import ErfaWarning
 from loguru import logger
 
-# Configuration constants
-DEFAULT_DUCKDB_THREADS = 16
-"""Default number of threads for DuckDB operations"""
+load_dotenv(override=False)
 
-DEFAULT_PARALLAX_FALLBACK = 1e-7
+
+def _env_int(name: str, default: int) -> int:
+    value = os.getenv(name)
+    if value is None or value.strip() == "":
+        return default
+    try:
+        return int(value)
+    except ValueError:
+        logger.warning(f"Invalid env var {name}='{value}', using default={default}")
+        return default
+
+
+def _env_float(name: str, default: float) -> float:
+    value = os.getenv(name)
+    if value is None or value.strip() == "":
+        return default
+    try:
+        return float(value)
+    except ValueError:
+        logger.warning(f"Invalid env var {name}='{value}', using default={default}")
+        return default
+
+
+def _env_str(name: str, default: str, *, allowed: set[str] | None = None) -> str:
+    value = os.getenv(name)
+    if value is None or value.strip() == "":
+        return default
+    value = value.strip()
+    if allowed is not None and value not in allowed:
+        logger.warning(
+            f"Invalid env var {name}='{value}', allowed={sorted(allowed)}; using default={default}"
+        )
+        return default
+    return value
+
+
+# Configuration constants (env-overridable)
+DEFAULT_DUCKDB_THREADS = _env_int("DUCKDB_THREADS", 16)
+"""Default number of threads for DuckDB operations (env: DUCKDB_THREADS)"""
+
+DEFAULT_PARALLAX_FALLBACK = _env_float("FLUXSTD_PARALLAX_FALLBACK_MAS", 1e-7)
 """Default parallax value (mas) for objects with poor parallax measurements.
+Env: FLUXSTD_PARALLAX_FALLBACK_MAS.
+
 This very small but non-zero value prevents division by zero while maintaining
-the correct sign for distance calculations."""
+the correct sign for distance calculations.
+"""
 
-DEFAULT_PM_SNR_THRESHOLD = 3.0
-"""Signal-to-noise ratio threshold for accepting proper motion and parallax measurements"""
+DEFAULT_PM_SNR_THRESHOLD = _env_float("FLUXSTD_PM_SNR_THRESHOLD", 3.0)
+"""SNR threshold for accepting proper motion and parallax (env: FLUXSTD_PM_SNR_THRESHOLD)"""
 
-DEFAULT_MATCH_SEPARATION = 1 * u.arcsec
-"""Default maximum separation for catalog matching"""
+DEFAULT_MATCH_SEPARATION = _env_float("FLUXSTD_MATCH_SEPARATION_ARCSEC", 1.0) * u.arcsec
+"""Default maximum separation for catalog matching (env: FLUXSTD_MATCH_SEPARATION_ARCSEC)"""
 
-DEFAULT_NSIDE = 32
-"""Default HEALPix NSIDE parameter"""
+DEFAULT_NSIDE = _env_int("FLUXSTD_NSIDE", 32)
+"""Default HEALPix NSIDE parameter (env: FLUXSTD_NSIDE)"""
 
-DEFAULT_HEALPIX_ORDER = "ring"
-"""Default HEALPix ordering scheme"""
+DEFAULT_HEALPIX_ORDER = _env_str(
+    "FLUXSTD_HEALPIX_ORDER", "ring", allowed={"ring", "nested"}
+)
+"""Default HEALPix ordering scheme (env: FLUXSTD_HEALPIX_ORDER)"""
 
-# Flux standard quality selection criteria
-DEFAULT_MIN_PROB_F_STAR = 0.5
-"""Minimum stellar probability for flux standard selection"""
+# Flux standard quality selection criteria (env-overridable)
+DEFAULT_MIN_PROB_F_STAR = _env_float("FLUXSTD_MIN_PROB_F_STAR", 0.5)
+"""Minimum stellar probability (env: FLUXSTD_MIN_PROB_F_STAR)"""
 
-DEFAULT_MAX_PROB_F_STAR = 1.0
-"""Maximum stellar probability for flux standard selection"""
+DEFAULT_MAX_PROB_F_STAR = _env_float("FLUXSTD_MAX_PROB_F_STAR", 1.0)
+"""Maximum stellar probability (env: FLUXSTD_MAX_PROB_F_STAR)"""
 
-DEFAULT_MIN_PSF_MAG_G = 17.0
-"""Minimum PS1 g-band PSF magnitude for flux standard selection"""
+DEFAULT_MIN_PSF_MAG_G = _env_float("FLUXSTD_MIN_PSF_MAG_G", 17.0)
+"""Minimum PS1 g-band PSF magnitude (env: FLUXSTD_MIN_PSF_MAG_G)"""
 
-DEFAULT_MAX_PSF_MAG_G = 19.0
-"""Maximum PS1 g-band PSF magnitude for flux standard selection"""
+DEFAULT_MAX_PSF_MAG_G = _env_float("FLUXSTD_MAX_PSF_MAG_G", 19.0)
+"""Maximum PS1 g-band PSF magnitude (env: FLUXSTD_MAX_PSF_MAG_G)"""
 
-DEFAULT_MIN_PSF_MAG_R = 17.0
-"""Minimum Gaia G-filter PSF magnitude for flux standard selection"""
+DEFAULT_MIN_PSF_MAG_R = _env_float("FLUXSTD_MIN_PSF_MAG_R", 17.0)
+"""Minimum Gaia G-filter PSF magnitude (env: FLUXSTD_MIN_PSF_MAG_R)"""
 
-DEFAULT_MAX_PSF_MAG_R = 19.0
-"""Maximum Gaia G-filter PSF magnitude for flux standard selection"""
+DEFAULT_MAX_PSF_MAG_R = _env_float("FLUXSTD_MAX_PSF_MAG_R", 19.0)
+"""Maximum Gaia G-filter PSF magnitude (env: FLUXSTD_MAX_PSF_MAG_R)"""
 
-DEFAULT_MIN_TEFF_BRUTUS = 5000.0
-"""Minimum effective temperature (K) from Brutus for flux standard selection"""
+DEFAULT_MIN_TEFF_BRUTUS = _env_float("FLUXSTD_MIN_TEFF_BRUTUS", 5000.0)
+"""Minimum Teff (K) from Brutus (env: FLUXSTD_MIN_TEFF_BRUTUS)"""
 
-DEFAULT_MAX_TEFF_BRUTUS = 8000.0
-"""Maximum effective temperature (K) from Brutus for flux standard selection"""
+DEFAULT_MAX_TEFF_BRUTUS = _env_float("FLUXSTD_MAX_TEFF_BRUTUS", 8000.0)
+"""Maximum Teff (K) from Brutus (env: FLUXSTD_MAX_TEFF_BRUTUS)"""
 
-DEFAULT_MIN_TEFF_GSPPHOT = 5000.0
-"""Minimum effective temperature (K) from Gaia GSP-Phot for flux standard selection"""
+DEFAULT_MIN_TEFF_GSPPHOT = _env_float("FLUXSTD_MIN_TEFF_GSPPHOT", 5000.0)
+"""Minimum Teff (K) from Gaia GSP-Phot (env: FLUXSTD_MIN_TEFF_GSPPHOT)"""
 
-DEFAULT_MAX_TEFF_GSPPHOT = 8000.0
-"""Maximum effective temperature (K) from Gaia GSP-Phot for flux standard selection"""
+DEFAULT_MAX_TEFF_GSPPHOT = _env_float("FLUXSTD_MAX_TEFF_GSPPHOT", 8000.0)
+"""Maximum Teff (K) from Gaia GSP-Phot (env: FLUXSTD_MAX_TEFF_GSPPHOT)"""
 
 
 def _validate_path(path: str, param_name: str) -> str:
@@ -437,7 +482,7 @@ def generate_fluxstd_coords(df_db: pd.DataFrame) -> SkyCoord:
             Time(2000.0, format="jyear", scale="tcb")
         )
 
-    return coords_db_epoch2000[good_fluxstd]
+    return coords_db_epoch2000, good_fluxstd
 
 
 def match_catalog(
@@ -497,27 +542,33 @@ def match_catalog(
         frame="icrs",
     )
 
-    coords_db_epoch2000 = generate_fluxstd_coords(df_fluxstd)
+    coords_db_epoch2000, good_fluxstd = generate_fluxstd_coords(df_fluxstd)
+
+    good_coords = coords_db_epoch2000[good_fluxstd]
+    good_df_fluxstd = df_fluxstd.loc[good_fluxstd].reset_index(drop=True)
 
     # The result object has indices and angular_separation attributes
     # The length of these attributes is the same as the length of coords_input
-    res_coord_match = match_coordinates_sky(
-        coords_input, coords_db_epoch2000, nthneighbor=1
-    )
+    res_coord_match = match_coordinates_sky(coords_input, good_coords, nthneighbor=1)
 
     is_matched = res_coord_match.angular_separation <= sep
 
     matched_fluxstd_indices = res_coord_match.indices_to_catalog[is_matched]
 
-    df_fluxstd_matched = df_fluxstd.iloc[matched_fluxstd_indices].copy()
+    df_fluxstd_matched = good_df_fluxstd.iloc[matched_fluxstd_indices].copy()
 
     df_out = df.loc[is_matched, ["obj_id", "ra", "dec"]].copy().reset_index(drop=True)
     df_out["fluxstd_obj_id"] = df_fluxstd_matched["obj_id"].to_numpy()
-    df_out["fluxstd_ra"] = df_fluxstd_matched["ra"].to_numpy()
-    df_out["fluxstd_dec"] = df_fluxstd_matched["dec"].to_numpy()
+    # df_out["fluxstd_ra"] = df_fluxstd_matched["ra"].to_numpy()
+    # df_out["fluxstd_dec"] = df_fluxstd_matched["dec"].to_numpy()
+    df_out["fluxstd_ra"] = good_coords.ra[matched_fluxstd_indices].deg
+    df_out["fluxstd_dec"] = good_coords.dec[matched_fluxstd_indices].deg
     df_out["sep_arcsec"] = (
         res_coord_match.angular_separation[is_matched].to(u.arcsec).value
     )
+
+    df_out["obj_id_str"] = df_out["obj_id"].astype(str)
+    df_out["fluxstd_obj_id_str"] = df_out["fluxstd_obj_id"].astype(str)
 
     logger.info(f"Matched {len(df_out)} objects within {sep.to(u.arcsec).value} arcsec")
 
