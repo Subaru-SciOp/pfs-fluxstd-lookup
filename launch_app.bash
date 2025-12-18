@@ -62,6 +62,7 @@ if [[ "$MODE" == "dev" ]]; then
     $PREFIX_OPT \
     --static-dirs "assets"="./assets" \
     --websocket-max-message-size $MAX_SIZE_BYTES \
+    --ico-path "none" \
     --dev
 else
   echo "Running in production mode with multi-threading"
@@ -76,6 +77,7 @@ else
     $PREFIX_OPT \
     --static-dirs "assets"="./assets" \
     --websocket-max-message-size $MAX_SIZE_BYTES \
+    --ico-path "none" \
     --num-threads 8
 fi
 

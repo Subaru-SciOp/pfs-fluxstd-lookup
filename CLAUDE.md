@@ -97,6 +97,10 @@ uv run ruff check --fix .
 
 # Type checking (if needed - not currently configured)
 # uv run mypy .
+
+# Run Python scripts/modules
+uv run python script.py
+uv run python -m module_name
 ```
 
 ### Running the Application
