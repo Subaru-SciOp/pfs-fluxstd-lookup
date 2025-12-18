@@ -1,0 +1,42 @@
+[project]
+name = "pfs-fluxstd-match"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "astropy[recommended]>=7.2.0",
+    "astropy-healpix>=1.1.2",
+    "duckdb>=1.4.3",
+    "loguru>=0.7.3",
+    "numpy>=2.3.5",
+    "pandas[parquet]>=2.3.3",
+    "psycopg2-binary>=2.9.10",
+    "panel>=1.8.4",
+]
+
+[dependency-groups]
+dev = ["black>=25.12.0", "ruff>=0.14.9", "watchfiles>=1.1.1"]
+
+[tool.black]
+line-length = 88
+target-version = ["py312"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 88
+force-exclude = true
+
+[tool.ruff.lint]
+# Explicitly include Ruff's default rule set (E4/E7/E9/F), then add extra rules.
+select = ["E4", "E7", "E9", "F", "B", "I", "UP", "D"]
+# Allow Ruff to apply all available auto-fixes when running with `--fix`.
+fixable = ["ALL"]
+
+[tool.ruff.lint.pydocstyle]
+# Enforce NumPy-style docstrings.
+convention = "numpy"
+
+[tool.ruff.lint.per-file-ignores]
+# Keep tests lightweight: don't require docstrings in test files.
+"tests/**.py" = ["D"]
