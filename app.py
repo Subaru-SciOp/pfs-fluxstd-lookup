@@ -59,7 +59,7 @@ download_button.disabled = True
 result_table = pn.widgets.Tabulator(
     name="Matched Flux Standard Stars",
     width=1280,
-    height=640,
+    height=720,
     pagination="remote",
     page_size=250,
     show_index=False,
@@ -88,6 +88,15 @@ result_table = pn.widgets.Tabulator(
 result_table.visible = False
 process_button.disabled = True
 
+# Object count display
+object_count_text = pn.pane.Markdown(
+    "",
+    styles={"font-size": "large", "font-weight": "bold"},
+    width=1280,
+    # margin=(10, 0, 10, 0),
+)
+object_count_text.visible = False
+
 # Loading spinner for processing state
 loading_spinner_size = 180
 loading_spinner = pn.indicators.LoadingSpinner(
@@ -97,15 +106,15 @@ loading_spinner = pn.indicators.LoadingSpinner(
     color="secondary",
     bgcolor="light",
     margin=(
-        (640 - loading_spinner_size) // 4,
+        (720 - loading_spinner_size) // 6,
         0,
         0,
-        (1280 - loading_spinner_size) // 3,
+        (1280 - loading_spinner_size) // 8,
     ),
 )
 
 # Container to switch between spinner and result table
-result_area = pn.Column(width=1280, height=640, visible=False, margin=(0, 0, 0, 0))
+result_area = pn.Column(width=1280, height=720, visible=False, margin=(0, 0, 0, 0))
 
 
 # Callback
@@ -146,23 +155,32 @@ def match_fluxstd_callback(event: Any) -> None:
         # Perform matching
         df_out = process_fluxstd_lookup(df_input)
 
-        # Update the result table
-        result_table.value = df_out.loc[
-            :,
-            [
-                "obj_id_str",
-                "ra",
-                "dec",
-                "fluxstd_obj_id_str",
-                "fluxstd_ra",
-                "fluxstd_dec",
-                "sep_arcsec",
-            ],
-        ]
+        # Count matched objects
+        num_objects = len(df_out)
+        object_count_text.object = f"**Detected objects: {num_objects}**"
+        object_count_text.visible = True
 
-        # Show result table instead of spinner
-        result_area.objects = [result_table]
-        result_table.visible = True
+        # Update the result table and decide whether to show it
+        if num_objects > 0:
+            result_table.value = df_out.loc[
+                :,
+                [
+                    "obj_id_str",
+                    "ra",
+                    "dec",
+                    "fluxstd_obj_id_str",
+                    "fluxstd_ra",
+                    "fluxstd_dec",
+                    "sep_arcsec",
+                ],
+            ]
+            result_table.visible = True
+            # Show both count and table
+            result_area.objects = [object_count_text, result_table]
+        else:
+            # No matches - show only the count, hide table
+            result_table.visible = False
+            result_area.objects = [object_count_text]
 
         # Update download button with the results
         # NOTE: FileDownload treats a returned `str` as a file path.
@@ -208,6 +226,7 @@ def _toggle_button_on_file(event: Any) -> None:
     if event.new is not None and len(event.new) > 0:
         result_table.value = pd.DataFrame()
         result_table.visible = False
+        object_count_text.visible = False
         result_area.visible = False
         download_button.disabled = True
 
