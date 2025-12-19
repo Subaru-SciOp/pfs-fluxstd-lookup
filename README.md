@@ -12,7 +12,7 @@ The application uses HEALPix spatial indexing for efficient catalog queries and 
 
 - Upload target lists in CSV format
 - Match targets with flux standard stars from Gaia DR3 × Pan-STARRS DR2
-- Dual catalog support: prioritize PS1+Gaia, fallback to Gaia-only for southern sky (Dec < -30°)
+- Exclusive catalog selection: stars with PS1 data use PS1+Gaia criteria only, stars without PS1 data use Gaia-only criteria
 - Apply proper motion and parallax corrections to epoch 2000.0
 - Quality filtering based on stellar probability, magnitude, and temperature
 - Track catalog source for each matched star (PS1+Gaia or Gaia-only)
@@ -188,14 +188,18 @@ All parameters can be customized via environment variables in the `.env` file:
 
 ### Quality Cuts
 
-**PS1+Gaia selection (preferred)**:
+**PS1+Gaia selection** (applied exclusively to stars with PS1 data):
+
 - `FLUXSTD_MIN_PSF_MAG_G`, `FLUXSTD_MAX_PSF_MAG_G`: Pan-STARRS g-band magnitude range (default: 17.0-19.0)
 - `FLUXSTD_MIN_TEFF_BRUTUS`, `FLUXSTD_MAX_TEFF_BRUTUS`: Effective temperature range from Brutus (default: 5000-8000 K)
 - `FLUXSTD_MIN_PROB_F_STAR`: Minimum stellar probability (default: 0.5)
 
-**Gaia-only selection (fallback)**:
+**Gaia-only selection** (applied exclusively to stars without PS1 data):
+
 - `FLUXSTD_MIN_PSF_MAG_R`, `FLUXSTD_MAX_PSF_MAG_R`: Gaia G-band magnitude range (default: 17.0-19.0)
 - `FLUXSTD_MIN_TEFF_GSPPHOT`, `FLUXSTD_MAX_TEFF_GSPPHOT`: Effective temperature range from GSP-Phot (default: 5000-8000 K)
+
+**Note**: Stars with PS1 data (`prob_f_star` not null) are evaluated ONLY with PS1+Gaia criteria and will be excluded if they fail, regardless of Gaia criteria. Stars without PS1 data are evaluated ONLY with Gaia-only criteria.
 
 ### Performance
 
@@ -243,9 +247,10 @@ uv run ruff check --fix .
 1. Input coordinates are assigned HEALPix pixel indices
 2. Flux standard catalog is queried from Parquet files by HEALPix pixel
 3. Proper motion and parallax corrections are applied to flux standards
-4. Dual quality selection applied:
-   - **PS1+Gaia**: Uses Brutus stellar probability and temperature (preferred)
-   - **Gaia-only**: Uses GSP-Phot temperature and Gaia stellar flags (fallback for Dec < -30°)
+4. Exclusive quality selection applied based on PS1 data availability:
+   - **PS1+Gaia**: Applied ONLY to stars with PS1 data (`prob_f_star` not null)
+   - **Gaia-only**: Applied ONLY to stars without PS1 data (`prob_f_star` null)
+   - Stars with PS1 data that fail PS1 criteria are excluded (not re-evaluated with Gaia criteria)
 5. Catalog source tracked for each star (PS1+Gaia or Gaia-only)
 6. Angular separation matching using astropy's `match_coordinates_sky`
 7. Results include only matches within the specified separation threshold

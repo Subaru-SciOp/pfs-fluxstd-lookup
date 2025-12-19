@@ -445,6 +445,9 @@ def generate_fluxstd_coords(
     )
     good_fluxstd_ps1 = good_fstar_brutus & good_flux_ps1 & good_teff_brutus
 
+    # Detect stars with PS1 data available
+    has_ps1_data = df_db["prob_f_star"].notna()
+
     good_fstar_gaia = df_db["is_fstar_gaia"]
     good_teff_gaia = (df_db["teff_gspphot"] >= min_teff_gspphot) & (
         df_db["teff_gspphot"] <= max_teff_gspphot
@@ -464,9 +467,12 @@ def generate_fluxstd_coords(
             "No good Gaia-only flux standard stars found after applying quality cuts."
         )
 
-    # Priority selection: PS1+Gaia preferred, Gaia-only as fallback
-    # Use OR operation to combine both selections
-    good_fluxstd = good_fluxstd_ps1 | good_fluxstd_gaia
+    # Exclusive priority selection: stars with PS1 data use ONLY PS1 criteria
+    # Stars without PS1 data use ONLY Gaia criteria
+    # Stars with PS1 data that fail PS1 criteria are excluded entirely
+    good_fluxstd_ps1_exclusive = has_ps1_data & good_fluxstd_ps1
+    good_fluxstd_gaia_exclusive = ~has_ps1_data & good_fluxstd_gaia
+    good_fluxstd = good_fluxstd_ps1_exclusive | good_fluxstd_gaia_exclusive
 
     if not good_fluxstd.any():
         raise ValueError(
@@ -475,12 +481,12 @@ def generate_fluxstd_coords(
 
     # Create catalog source labels
     catalog_source = pd.Series([""] * len(df_db), index=df_db.index, dtype=str)
-    catalog_source[good_fluxstd_ps1] = "PS1+Gaia"
-    catalog_source[good_fluxstd & ~good_fluxstd_ps1] = "Gaia-only"
+    catalog_source[good_fluxstd_ps1_exclusive] = "PS1+Gaia"
+    catalog_source[good_fluxstd_gaia_exclusive] = "Gaia-only"
 
     logger.info(f"Number of good fluxstd objects: {np.sum(good_fluxstd)}/{len(df_db)}")
-    logger.info(f"  - PS1+Gaia: {np.sum(good_fluxstd_ps1)}")
-    logger.info(f"  - Gaia-only: {np.sum(good_fluxstd & ~good_fluxstd_ps1)}")
+    logger.info(f"  - PS1+Gaia: {np.sum(good_fluxstd_ps1_exclusive)}")
+    logger.info(f"  - Gaia-only: {np.sum(good_fluxstd_gaia_exclusive)}")
 
     required_cols = [
         "ra",
