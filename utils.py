@@ -380,12 +380,15 @@ def fetch_fluxstd(
     return df_db
 
 
-def generate_fluxstd_coords(df_db: pd.DataFrame) -> tuple[SkyCoord, pd.Series]:
+def generate_fluxstd_coords(
+    df_db: pd.DataFrame,
+) -> tuple[SkyCoord, pd.Series, pd.Series]:
     """
     Generate SkyCoord objects for flux standard catalog with proper motion and parallax.
 
     Applies proper motion and parallax corrections, propagating coordinates to epoch 2000.0.
     Bad proper motion and parallax measurements (SNR < 3.0) are set to zero/default values.
+    Prioritizes PS1+Gaia flux standards, using Gaia-only as fallback.
 
     Parameters
     ----------
@@ -394,10 +397,11 @@ def generate_fluxstd_coords(df_db: pd.DataFrame) -> tuple[SkyCoord, pd.Series]:
 
     Returns
     -------
-    tuple[SkyCoord, pd.Series]
+    tuple[SkyCoord, pd.Series, pd.Series]
         Tuple containing:
         - SkyCoord object with coordinates propagated to epoch 2000.0
         - Boolean pandas Series indicating good flux standard objects
+        - String pandas Series indicating catalog source ("PS1+Gaia" or "Gaia-only")
 
     Raises
     ------
@@ -439,27 +443,44 @@ def generate_fluxstd_coords(df_db: pd.DataFrame) -> tuple[SkyCoord, pd.Series]:
     good_teff_brutus = (df_db["teff_brutus"] >= min_teff_brutus) & (
         df_db["teff_brutus"] <= max_teff_brutus
     )
-    good_fluxstd = good_fstar_brutus & good_flux_ps1 & good_teff_brutus
+    good_fluxstd_ps1 = good_fstar_brutus & good_flux_ps1 & good_teff_brutus
+
+    good_fstar_gaia = df_db["is_fstar_gaia"]
+    good_teff_gaia = (df_db["teff_gspphot"] >= min_teff_gspphot) & (
+        df_db["teff_gspphot"] <= max_teff_gspphot
+    )
+    good_flux_gaia = (df_db["psf_flux_r"] >= min_psf_flux_r) & (
+        df_db["psf_flux_r"] <= max_psf_flux_r
+    )
+    good_fluxstd_gaia = good_fstar_gaia & good_teff_gaia & good_flux_gaia
+
+    if not good_fluxstd_ps1.any():
+        logger.warning(
+            "No good PS1-Gaia flux standard stars found after applying quality cuts."
+        )
+
+    if not good_fluxstd_gaia.any():
+        logger.warning(
+            "No good Gaia-only flux standard stars found after applying quality cuts."
+        )
+
+    # Priority selection: PS1+Gaia preferred, Gaia-only as fallback
+    # Use OR operation to combine both selections
+    good_fluxstd = good_fluxstd_ps1 | good_fluxstd_gaia
 
     if not good_fluxstd.any():
-        logger.warning(
-            "No good flux PS1-Gaia stars found after applying quality cuts. Move to Gaia-only selection"
+        raise ValueError(
+            "No good flux standard stars found after applying quality cuts"
         )
-        good_fstar_gaia = df_db["is_fstar_gaia"]
-        good_teff_gaia = (df_db["teff_gspphot"] >= min_teff_gspphot) & (
-            df_db["teff_gspphot"] <= max_teff_gspphot
-        )
-        good_flux_gaia = (df_db["psf_flux_r"] >= min_psf_flux_r) & (
-            df_db["psf_flux_r"] <= max_psf_flux_r
-        )
-        good_fluxstd = good_fstar_gaia & good_teff_gaia & good_flux_gaia
 
-        if not good_fluxstd.any():
-            raise ValueError(
-                "No good flux standard stars found after applying Gaia-only quality cuts"
-            )
+    # Create catalog source labels
+    catalog_source = pd.Series([""] * len(df_db), index=df_db.index, dtype=str)
+    catalog_source[good_fluxstd_ps1] = "PS1+Gaia"
+    catalog_source[good_fluxstd & ~good_fluxstd_ps1] = "Gaia-only"
 
     logger.info(f"Number of good fluxstd objects: {np.sum(good_fluxstd)}/{len(df_db)}")
+    logger.info(f"  - PS1+Gaia: {np.sum(good_fluxstd_ps1)}")
+    logger.info(f"  - Gaia-only: {np.sum(good_fluxstd & ~good_fluxstd_ps1)}")
 
     required_cols = [
         "ra",
@@ -521,7 +542,7 @@ def generate_fluxstd_coords(df_db: pd.DataFrame) -> tuple[SkyCoord, pd.Series]:
             Time(2000.0, format="jyear", scale="tcb")
         )
 
-    return coords_db_epoch2000, good_fluxstd
+    return coords_db_epoch2000, good_fluxstd, catalog_source
 
 
 def match_catalog(
@@ -534,6 +555,7 @@ def match_catalog(
 
     Performs spatial cross-matching using astropy's match_coordinates_sky,
     applying proper motion and parallax corrections to the flux standard catalog.
+    Prioritizes PS1+Gaia flux standards, using Gaia-only as fallback.
 
     Parameters
     ----------
@@ -554,6 +576,7 @@ def match_catalog(
         - fluxstd_obj_id: Matched flux standard object ID
         - fluxstd_ra, fluxstd_dec: Matched flux standard coordinates
         - sep_arcsec: Separation in arcseconds
+        - catalog_source: Catalog source ("PS1+Gaia" or "Gaia-only")
 
     Raises
     ------
@@ -581,10 +604,13 @@ def match_catalog(
         frame="icrs",
     )
 
-    coords_db_epoch2000, good_fluxstd = generate_fluxstd_coords(df_fluxstd)
+    coords_db_epoch2000, good_fluxstd, catalog_source = generate_fluxstd_coords(
+        df_fluxstd
+    )
 
     good_coords = coords_db_epoch2000[good_fluxstd]
     good_df_fluxstd = df_fluxstd.loc[good_fluxstd].reset_index(drop=True)
+    good_catalog_source = catalog_source[good_fluxstd].reset_index(drop=True)
 
     # The result object has indices and angular_separation attributes
     # The length of these attributes is the same as the length of coords_input
@@ -592,7 +618,7 @@ def match_catalog(
 
     is_matched = res_coord_match.angular_separation <= sep
 
-    matched_fluxstd_indices = res_coord_match.indices_to_catalog[is_matched]
+    matched_fluxstd_indices = res_coord_match.indices_to_catalog[is_matched].astype(int)
 
     df_fluxstd_matched = good_df_fluxstd.iloc[matched_fluxstd_indices].copy()
 
@@ -605,6 +631,7 @@ def match_catalog(
     df_out["sep_arcsec"] = (
         res_coord_match.angular_separation[is_matched].to(u.arcsec).value
     )
+    df_out["catalog_source"] = good_catalog_source.to_numpy()[matched_fluxstd_indices]
 
     df_out["obj_id_str"] = df_out["obj_id"].astype(str)
     df_out["fluxstd_obj_id_str"] = df_out["fluxstd_obj_id"].astype(str)
@@ -870,6 +897,7 @@ def process_fluxstd_lookup(df_input: pd.DataFrame) -> pd.DataFrame:
                 "fluxstd_ra",
                 "fluxstd_dec",
                 "sep_arcsec",
+                "catalog_source",
                 "obj_id_str",
                 "fluxstd_obj_id_str",
             ]
