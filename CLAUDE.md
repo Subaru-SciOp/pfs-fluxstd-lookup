@@ -6,6 +6,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 This is a Python-based web application for matching astronomical catalogs with flux standard star catalogs from Gaia DR3 and Pan-STARRS DR2. The application uses HEALPix spatial indexing for efficient sky coordinate matching and provides a Panel-based web interface for users to upload target lists and retrieve matched flux standards.
 
+The application supports dual catalog selection: PS1+Gaia flux standards are preferred, with Gaia-only standards used as fallback for regions without Pan-STARRS coverage (Dec < -30°). Each matched star includes a `catalog_source` field indicating its origin.
+
 ## Architecture
 
 ### Core Components
@@ -15,7 +17,9 @@ The codebase consists of two main files:
 - **[utils.py](utils.py)**: Core catalog matching utilities using HEALPix spatial indexing
   - Implements spatial matching with proper motion and parallax corrections
   - Uses DuckDB to query Parquet-based flux standard catalog partitioned by HEALPix pixels
+  - Dual catalog selection: PS1+Gaia (preferred) and Gaia-only (fallback)
   - Applies quality cuts based on stellar probability, magnitude ranges, and effective temperature
+  - Tracks catalog source for each matched star (PS1+Gaia or Gaia-only)
   - Processes catalogs in batches of HEALPix pixels with optional neighbor inclusion
 
 - **[app.py](app.py)**: Panel web application interface
@@ -59,10 +63,15 @@ Configuration is loaded via `python-dotenv` and parsed with type-safe helper fun
 - Falls back to zero proper motion and very small parallax for poor measurements
 - Propagates coordinates to epoch 2000.0 using `SkyCoord.apply_space_motion`
 
-**Quality Selection** ([utils.py](utils.py:432-460)):
-- Primary selection: Pan-STARRS + Gaia with Brutus stellar probability and temperature
-- Fallback selection: Gaia-only with GSP-Phot temperature if Pan-STARRS unavailable
-- Configurable magnitude and temperature ranges
+**Quality Selection** ([utils.py](utils.py:433-475)):
+- **Primary selection (PS1+Gaia)**: Pan-STARRS + Gaia with Brutus stellar probability and temperature
+  - Uses `prob_f_star`, `psf_flux_g`, and `teff_brutus`
+  - Preferred for Dec >= -30° where PS1 coverage exists
+- **Fallback selection (Gaia-only)**: Gaia with GSP-Phot temperature and stellar flags
+  - Uses `is_fstar_gaia`, `psf_flux_r`, and `teff_gspphot`
+  - Used for Dec < -30° or when PS1 data unavailable
+- Combined with OR operation: both selections contribute to final catalog
+- Each star labeled with `catalog_source` ("PS1+Gaia" or "Gaia-only")
 
 **Batch Processing** ([utils.py](utils.py:769-871)):
 - Divides HEALPix pixels into batches (default: 20 pixels/batch)
@@ -146,7 +155,8 @@ There are no automated tests currently. Manual testing workflow:
 ### Error Handling
 
 - Input validation with descriptive error messages for missing columns, empty DataFrames, invalid parameters
-- Graceful degradation: If Pan-STARRS data unavailable, falls back to Gaia-only selection
+- Dual catalog support: PS1+Gaia and Gaia-only selections run in parallel, combined with OR operation
+- If neither PS1+Gaia nor Gaia-only selections yield results, raises ValueError
 - Batch processing errors are logged but don't halt entire job
 - Panel UI shows error notifications with `pn.state.notifications.error()`
 

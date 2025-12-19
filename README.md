@@ -12,8 +12,10 @@ The application uses HEALPix spatial indexing for efficient catalog queries and 
 
 - Upload target lists in CSV format
 - Match targets with flux standard stars from Gaia DR3 × Pan-STARRS DR2
+- Dual catalog support: prioritize PS1+Gaia, fallback to Gaia-only for southern sky (Dec < -30°)
 - Apply proper motion and parallax corrections to epoch 2000.0
 - Quality filtering based on stellar probability, magnitude, and temperature
+- Track catalog source for each matched star (PS1+Gaia or Gaia-only)
 - Interactive result visualization
 - Download matched results as CSV
 
@@ -172,6 +174,7 @@ The matched results include:
 - `fluxstd_obj_id`: Matched flux standard star ID (Gaia source_id)
 - `fluxstd_ra`, `fluxstd_dec`: Matched flux standard coordinates at epoch 2000.0 (degrees)
 - `sep_arcsec`: Angular separation between target and flux standard (arcseconds)
+- `catalog_source`: Catalog source ("PS1+Gaia" or "Gaia-only")
 
 ## Configuration
 
@@ -185,10 +188,14 @@ All parameters can be customized via environment variables in the `.env` file:
 
 ### Quality Cuts
 
+**PS1+Gaia selection (preferred)**:
 - `FLUXSTD_MIN_PSF_MAG_G`, `FLUXSTD_MAX_PSF_MAG_G`: Pan-STARRS g-band magnitude range (default: 17.0-19.0)
-- `FLUXSTD_MIN_PSF_MAG_R`, `FLUXSTD_MAX_PSF_MAG_R`: Gaia G-band magnitude range (default: 17.0-19.0)
 - `FLUXSTD_MIN_TEFF_BRUTUS`, `FLUXSTD_MAX_TEFF_BRUTUS`: Effective temperature range from Brutus (default: 5000-8000 K)
 - `FLUXSTD_MIN_PROB_F_STAR`: Minimum stellar probability (default: 0.5)
+
+**Gaia-only selection (fallback)**:
+- `FLUXSTD_MIN_PSF_MAG_R`, `FLUXSTD_MAX_PSF_MAG_R`: Gaia G-band magnitude range (default: 17.0-19.0)
+- `FLUXSTD_MIN_TEFF_GSPPHOT`, `FLUXSTD_MAX_TEFF_GSPPHOT`: Effective temperature range from GSP-Phot (default: 5000-8000 K)
 
 ### Performance
 
@@ -236,9 +243,12 @@ uv run ruff check --fix .
 1. Input coordinates are assigned HEALPix pixel indices
 2. Flux standard catalog is queried from Parquet files by HEALPix pixel
 3. Proper motion and parallax corrections are applied to flux standards
-4. Quality cuts filter for suitable flux standards (magnitude, temperature, stellar probability)
-5. Angular separation matching using astropy's `match_coordinates_sky`
-6. Results include only matches within the specified separation threshold
+4. Dual quality selection applied:
+   - **PS1+Gaia**: Uses Brutus stellar probability and temperature (preferred)
+   - **Gaia-only**: Uses GSP-Phot temperature and Gaia stellar flags (fallback for Dec < -30°)
+5. Catalog source tracked for each star (PS1+Gaia or Gaia-only)
+6. Angular separation matching using astropy's `match_coordinates_sky`
+7. Results include only matches within the specified separation threshold
 
 ### Coordinate Systems
 
@@ -260,7 +270,10 @@ $DUCKDB_DATA_ROOT/
 ...
 ```
 
-Each Parquet file should contain columns for Gaia DR3 astrometry (ra, dec, pmra, pmdec, parallax, epoch), photometry (psf_flux_g, psf_flux_r), and stellar parameters (teff_brutus, teff_gspphot, prob_f_star, is_fstar_gaia).
+Each Parquet file should contain columns for:
+- Gaia DR3 astrometry: ra, dec, pmra, pmdec, parallax, epoch
+- Photometry: psf_flux_g (PS1 g-band), psf_flux_r (Gaia G-band)
+- Stellar parameters: teff_brutus (Brutus), teff_gspphot (GSP-Phot), prob_f_star (Brutus stellar probability), is_fstar_gaia (Gaia stellar flag)
 
 ## License
 
