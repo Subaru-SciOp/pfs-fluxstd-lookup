@@ -20,11 +20,18 @@ from utils import (
     process_fluxstd_lookup,
 )
 
-pn.extension("tabulator", notifications=True)
+load_dotenv()
+
+PRIMARY_COLOR = os.environ.get("PRIMARY_COLOR", "#5a79ba")
+pn.extension(
+    "tabulator",
+    design="material",
+    notifications=True,
+    global_css=[f":root {{ --design-primary-color: {PRIMARY_COLOR}; }}"],
+)
 
 logger.info("PFS Flux Standard Star Lookup Tool")
 
-load_dotenv()
 
 # Widgets
 file_input = pn.widgets.FileInput(
@@ -264,7 +271,7 @@ main = pn.Column(
 pn.template.MaterialTemplate(
     title="PFS Flux Standard Star Lookup",
     main=[main],
-    header_background="#5a79ba",
+    # header_background="#5a79ba",
     raw_css=[
         """
         /* Local Variable Fonts */
