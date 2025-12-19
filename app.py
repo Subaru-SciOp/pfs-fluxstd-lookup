@@ -81,6 +81,7 @@ result_table = pn.widgets.Tabulator(
         "fluxstd_ra": "fluxstd_RA (deg)",
         "fluxstd_dec": "fluxstd_Dec (deg)",
         "sep_arcsec": "separation (arcsec)",
+        "catalog_source": "catalog",
     },
     stylesheets=[
         """
@@ -179,6 +180,7 @@ def match_fluxstd_callback(event: Any) -> None:
                     "fluxstd_ra",
                     "fluxstd_dec",
                     "sep_arcsec",
+                    "catalog_source",
                 ],
             ]
             result_table.visible = True
@@ -204,6 +206,7 @@ def match_fluxstd_callback(event: Any) -> None:
                         "fluxstd_ra",
                         "fluxstd_dec",
                         "sep_arcsec",
+                        "catalog_source",
                     ],
                 ]
                 .to_csv(index=False)
