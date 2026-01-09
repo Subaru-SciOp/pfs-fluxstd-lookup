@@ -106,7 +106,7 @@ object_count_text = pn.pane.Markdown(
 object_count_text.visible = False
 
 # Loading spinner for processing state
-loading_spinner_size = 180
+loading_spinner_size = 120
 loading_spinner = pn.indicators.LoadingSpinner(
     value=True,
     name="Processing...",
@@ -114,10 +114,10 @@ loading_spinner = pn.indicators.LoadingSpinner(
     color="secondary",
     bgcolor="light",
     margin=(
-        (720 - loading_spinner_size) // 6,
+        (720 - loading_spinner_size) // 8,
         0,
         0,
-        (1280 - loading_spinner_size) // 8,
+        (1280 - loading_spinner_size) // 10,
     ),
 )
 
