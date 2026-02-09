@@ -15,6 +15,7 @@ The application uses HEALPix spatial indexing for efficient catalog queries and 
 - Exclusive catalog selection: stars with PS1 data use PS1+Gaia criteria only, stars without PS1 data use Gaia-only criteria
 - Apply proper motion and parallax corrections to epoch 2000.0
 - Quality filtering based on stellar probability, magnitude, and temperature
+- Exclude stars in globular cluster neighborhoods and dense regions
 - Track catalog source for each matched star (PS1+Gaia or Gaia-only)
 - Interactive result visualization
 - Download matched results as CSV
@@ -251,9 +252,10 @@ uv run ruff check --fix .
    - **PS1+Gaia**: Applied ONLY to stars with PS1 data (`prob_f_star` not null)
    - **Gaia-only**: Applied ONLY to stars without PS1 data (`prob_f_star` null)
    - Stars with PS1 data that fail PS1 criteria are excluded (not re-evaluated with Gaia criteria)
-5. Catalog source tracked for each star (PS1+Gaia or Gaia-only)
-6. Angular separation matching using astropy's `match_coordinates_sky`
-7. Results include only matches within the specified separation threshold
+5. Stars in globular cluster neighborhoods (`is_gc_neighbor`) or dense regions (`is_dense_region`) are excluded
+6. Catalog source tracked for each star (PS1+Gaia or Gaia-only)
+7. Angular separation matching using astropy's `match_coordinates_sky`
+8. Results include only matches within the specified separation threshold
 
 ### Coordinate Systems
 
@@ -279,6 +281,7 @@ Each Parquet file should contain columns for:
 - Gaia DR3 astrometry: ra, dec, pmra, pmdec, parallax, epoch
 - Photometry: psf_flux_g (PS1 g-band), psf_flux_r (Gaia G-band)
 - Stellar parameters: teff_brutus (Brutus), teff_gspphot (GSP-Phot), prob_f_star (Brutus stellar probability), is_fstar_gaia (Gaia stellar flag)
+- Region flags: is_gc_neighbor (globular cluster neighborhood), is_dense_region (dense stellar region)
 
 ## License
 
