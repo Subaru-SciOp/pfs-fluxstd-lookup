@@ -18,6 +18,7 @@ The codebase consists of two main files:
   - Implements spatial matching with proper motion and parallax corrections
   - Uses DuckDB to query Parquet-based flux standard catalog partitioned by HEALPix pixels
   - Exclusive catalog selection: PS1+Gaia criteria for stars with PS1 data, Gaia-only criteria for stars without PS1 data
+  - Excludes stars in globular cluster neighborhoods (`is_gc_neighbor`) and dense regions (`is_dense_region`)
   - Applies quality cuts based on stellar probability, magnitude ranges, and effective temperature
   - Tracks catalog source for each matched star (PS1+Gaia or Gaia-only)
   - Processes catalogs in batches of HEALPix pixels with optional neighbor inclusion
@@ -34,9 +35,10 @@ The codebase consists of two main files:
 2. Input coordinates are assigned HEALPix indices at configured NSIDE (default: 32)
 3. Flux standard catalog is queried from DuckDB/Parquet files by HEALPix pixel
 4. Proper motion and parallax corrections are applied to flux standards (epoch 2000.0)
-5. Quality cuts are applied (stellar probability, magnitude, temperature)
-6. Sky coordinate matching performed using astropy's `match_coordinates_sky`
-7. Results displayed in interactive table and available for CSV download
+5. Quality cuts are applied (stellar probability, magnitude, temperature, region flags)
+6. Stars in globular cluster neighborhoods or dense regions are excluded
+7. Sky coordinate matching performed using astropy's `match_coordinates_sky`
+8. Results displayed in interactive table and available for CSV download
 
 ### Configuration
 
@@ -75,6 +77,7 @@ Configuration is loaded via `python-dotenv` and parsed with type-safe helper fun
   - Uses `is_fstar_gaia`, `psf_flux_r`, and `teff_gspphot`
   - Applied exclusively to stars with `prob_f_star` null
 - **Important**: Stars with PS1 data that fail PS1 criteria are excluded entirely (NOT re-evaluated with Gaia criteria)
+- **Region exclusion**: After catalog selection, stars with `is_gc_neighbor=True` or `is_dense_region=True` are excluded (NULL values treated as `False`)
 - Each star labeled with `catalog_source` ("PS1+Gaia" or "Gaia-only")
 
 **Batch Processing** ([utils.py](utils.py:769-871)):
