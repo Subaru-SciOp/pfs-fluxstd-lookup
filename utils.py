@@ -474,6 +474,12 @@ def generate_fluxstd_coords(
     good_fluxstd_gaia_exclusive = ~has_ps1_data & good_fluxstd_gaia
     good_fluxstd = good_fluxstd_ps1_exclusive | good_fluxstd_gaia_exclusive
 
+    # Exclude stars in globular cluster neighborhoods or dense regions
+    not_gc_neighbor = ~df_db["is_gc_neighbor"].fillna(False)
+    not_dense_region = ~df_db["is_dense_region"].fillna(False)
+    good_fluxstd_before_region = good_fluxstd.copy()
+    good_fluxstd = good_fluxstd & not_gc_neighbor & not_dense_region
+
     if not good_fluxstd.any():
         raise ValueError(
             "No good flux standard stars found after applying quality cuts"
@@ -487,6 +493,14 @@ def generate_fluxstd_coords(
     logger.info(f"Number of good fluxstd objects: {np.sum(good_fluxstd)}/{len(df_db)}")
     logger.info(f"  - PS1+Gaia: {np.sum(good_fluxstd_ps1_exclusive)}")
     logger.info(f"  - Gaia-only: {np.sum(good_fluxstd_gaia_exclusive)}")
+    logger.info(
+        f"  - Excluded by is_gc_neighbor: "
+        f"{(~not_gc_neighbor & good_fluxstd_before_region).sum()}"
+    )
+    logger.info(
+        f"  - Excluded by is_dense_region: "
+        f"{(~not_dense_region & good_fluxstd_before_region).sum()}"
+    )
 
     required_cols = [
         "ra",
