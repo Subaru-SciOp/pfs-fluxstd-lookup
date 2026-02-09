@@ -284,6 +284,8 @@ def get_default_columns() -> list[str]:
         "teff_gspphot_lower",
         "teff_gspphot_upper",
         "is_fstar_gaia",
+        "is_gc_neighbor",
+        "is_dense_region",
     ]
 
 
